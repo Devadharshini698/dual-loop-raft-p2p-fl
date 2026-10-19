@@ -10,6 +10,12 @@ This repository is a lightweight deterministic research harness for studying cra
 
 Flower is optional. When `flwr` is unavailable, the project uses a built-in NumPyClient and FedAvg-compatible shim.
 
+Install the lightweight test and runtime dependencies with:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
 ## Verify the implementation
 
 ```bash
@@ -21,6 +27,25 @@ The evaluation command writes:
 
 - `results/rq_summary.md`
 - `results/rq_metrics.csv`
+
+## Run the judge demonstration
+
+```bash
+python run_live_demo.py
+```
+
+The demonstration walks through protocol self-labelling, local drift detection,
+safe link-versus-crash planning, provisional FL update handover, and final P2P
+training accuracy. It runs the real implementation with seed 42 and saves its
+machine-readable evidence to `results/live_demo.json`. For a quick automated
+run without presentation pauses, use:
+
+```bash
+python run_live_demo.py --pause 0 --no-color
+```
+
+For a judge session, first run `pytest -q`, then run the live demonstration,
+and finish with `python run_evaluation.py` to show the complete RQ tables.
 
 ## Project structure
 

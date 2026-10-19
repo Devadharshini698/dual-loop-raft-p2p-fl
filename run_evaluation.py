@@ -22,7 +22,8 @@ def write_results(rows: list[dict],
         writer.writerows(rows)
     lines = ["# Deterministic RQ Evaluation Summary", "",
              "Synthetic seeded benchmarks for implementation validation. "
-             "Results are not deployment measurements.", ""]
+             "Results are not deployment measurements. CPU timing is "
+             "machine-dependent and can vary between runs.", ""]
     for rq in ("RQ1", "RQ2", "RQ3", "RQ4", "RQ5"):
         lines.extend([f"## {rq}", "", "| Variant | Metric | Value | Unit |",
                       "|---|---|---:|---|"])

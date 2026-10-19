@@ -1,0 +1,49 @@
+{
+  "self_labelling": {
+    "link_failure": {
+      "label": "LINK_FAILURE",
+      "confidence": 0.9099999999999999
+    },
+    "crash": {
+      "label": "CRASH",
+      "confidence": 1.0
+    },
+    "local_isolation": {
+      "label": "UNRESOLVED",
+      "excluded_from_training": true
+    },
+    "feature_count": 10
+  },
+  "fast_loop": {
+    "ready": true,
+    "drift_detected": true,
+    "post_shift_accuracy": 1.0,
+    "trained_labels": 190
+  },
+  "safe_planner": {
+    "safety_floor_ms": 135.0,
+    "link": {
+      "timeout_ms": 500.0,
+      "witness_probe": true,
+      "provisional_leader": false
+    },
+    "crash": {
+      "timeout_ms": 135.0,
+      "start_election": true,
+      "provisional_leader": true
+    }
+  },
+  "p2p_fl": {
+    "buffered_client_updates": 5,
+    "handover_applied": true,
+    "legitimate_handovers": 1,
+    "final_accuracy": 1.0,
+    "time_to_target_ms": 1000.0
+  },
+  "benchmarks": {
+    "label_noise_rate": 0.048889,
+    "drift_recovery_samples": 23.0,
+    "full_dual_loop_f1": 0.982436,
+    "gated_spurious_handovers": 0.0
+  }
+}

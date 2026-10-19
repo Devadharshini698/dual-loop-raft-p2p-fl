@@ -1,6 +1,6 @@
 # Deterministic RQ Evaluation Summary
 
-Synthetic seeded benchmarks for implementation validation. Results are not deployment measurements.
+Synthetic seeded benchmarks for implementation validation. Results are not deployment measurements. CPU timing is machine-dependent and can vary between runs.
 
 ## RQ1
 
@@ -44,7 +44,7 @@ Synthetic seeded benchmarks for implementation validation. Results are not deplo
 
 | Variant | Metric | Value | Unit |
 |---|---|---:|---|
-| P2PFL | cpu_time_per_step | 0.392387 | ms |
+| P2PFL | cpu_time_per_step | 0.375737 | ms |
 | P2PFL | model_memory | 168 | bytes |
 | P2PFL | message_overhead | 7560 | bytes |
 | P2PFL | stalled_rounds | 1 | rounds |

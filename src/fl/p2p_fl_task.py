@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from importlib.metadata import version as package_version
 from typing import Any
 
 import numpy as np
@@ -12,12 +13,41 @@ from src.fl.planner_gate import ProvisionalAggregatorState
 try:
     from flwr.client import NumPyClient as NumPyClientBase
     from flwr.server.strategy import FedAvg as FedAvgBase
-except ImportError:
+    from flwr.server.strategy.aggregate import aggregate as flower_aggregate
+
+    FLOWER_AVAILABLE = True
+    FLOWER_VERSION = package_version("flwr")
+except ModuleNotFoundError as error:
+    if error.name != "flwr":
+        raise
+    FLOWER_AVAILABLE = False
+    FLOWER_VERSION = None
+    flower_aggregate = None
+
     class NumPyClientBase:
         """Minimal Flower NumPyClient protocol shim."""
 
     class FedAvgBase:
         """Minimal Flower FedAvg protocol shim."""
+
+
+def flower_runtime_status() -> dict[str, Any]:
+    """Describe the active SDK path without hiding fallback execution."""
+    fallback = not FLOWER_AVAILABLE
+    return {
+        "backend": "compatibility_shim" if fallback else "flower",
+        "mode": "fallback" if fallback else "native",
+        "available": FLOWER_AVAILABLE,
+        "fallback": fallback,
+        "version": FLOWER_VERSION,
+        "strategy": "flwr.server.strategy.FedAvg",
+        "execution": "in_process",
+        "message": (
+            "Flower-ready integration with a zero-dependency fallback; "
+            "this run is using the compatibility fallback because Flower is unavailable."
+            if fallback else "Real Flower SDK classes and weighted aggregation are active."
+        ),
+    }
 
 
 def _softmax(logits: np.ndarray) -> np.ndarray:
@@ -74,6 +104,8 @@ class RaftFedAvgStrategy(FedAvgBase):
     def aggregate_parameters(updates: list[tuple[list[np.ndarray], int]]) -> list[np.ndarray]:
         if not updates:
             raise ValueError("at least one client update is required")
+        if flower_aggregate is not None:
+            return [np.asarray(item).copy() for item in flower_aggregate(updates)]
         counts = np.asarray([count for _, count in updates], dtype=float)
         total = counts.sum()
         return [sum(parameters[index] * count for parameters, count in updates) / total

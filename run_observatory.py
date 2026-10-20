@@ -20,10 +20,17 @@ def main() -> None:
         import uvicorn
     except ImportError as error:
         raise SystemExit("Install the adapter: pip install -r requirements-showcase.txt") from error
+    from src.fl.p2p_fl_task import flower_runtime_status
+
+    flower = flower_runtime_status()
     url = f"http://{args.host}:{args.port}"
     if not args.no_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     print(f"Dual-Loop Judge Observatory ready at {url}")
+    if flower["fallback"]:
+        print(f"WARNING: {flower['message']}")
+    else:
+        print(f"Flower SDK {flower['version']} active with in-process FedAvg")
     uvicorn.run("server.app:app", host=args.host, port=args.port, reload=False)
 
 

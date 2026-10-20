@@ -7,8 +7,12 @@ This repository is a lightweight deterministic research harness for studying cra
 - Python 3.11 or newer
 - NumPy
 - pytest for tests
+- Flower 1.40.0 for the judge-facing P2P FL adapter
 
-Flower is optional. When `flwr` is unavailable, the project uses a built-in NumPyClient and FedAvg-compatible shim.
+The judge setup installs Flower and uses its real `NumPyClient`, `FedAvg`, and
+weighted aggregation implementation. A compatibility shim remains available
+for dependency-constrained environments, but fallback operation is disclosed
+prominently in the Observatory and is never silent.
 
 Install the lightweight test and runtime dependencies with:
 
@@ -65,6 +69,12 @@ python run_observatory.py
 
 Open `http://127.0.0.1:8501`. The launcher normally opens it automatically.
 Use `--no-browser` when running headlessly.
+
+The header reports `FLOWER SDK ACTIVE` with the loaded version. If Flower is
+unavailable, an accessible warning popup states that the compatibility fallback
+is active and a persistent amber fallback badge remains visible after dismissal.
+This is Flower-backed in-process FedAvg; it does not claim a separate Flower
+SuperLink or gRPC deployment.
 
 Judge Mode provides synchronized Standard Raft and Dual-Loop topologies, four
 fault presets, step-by-step playback, the ten telemetry features, the frozen

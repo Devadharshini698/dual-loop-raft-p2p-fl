@@ -17,7 +17,12 @@ def test_observatory_health_endpoint_contract() -> None:
     with TestClient(app) as client:
         response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "seed": 42, "test_count": 31}
+    payload = response.json()
+    assert {key: payload[key] for key in ("status", "seed", "test_count")} == {
+        "status": "ok", "seed": 42, "test_count": 31}
+    runtime = payload["flower_runtime"]
+    assert runtime["mode"] in {"native", "fallback"}
+    assert runtime["fallback"] is (runtime["mode"] == "fallback")
 
 
 def test_observatory_rq_and_live_check_bridges() -> None:
@@ -35,6 +40,7 @@ def test_observatory_frame_contains_real_protocol_state() -> None:
         frame = bridge.set_playback("step")
     assert frame["virtual_time_ms"] == 400
     assert len(frame["dual_loop"]["nodes"]) == 5
+    assert frame["flower_runtime"]["backend"] in {"flower", "compatibility_shim"}
     assert len(frame["dual_loop"]["telemetry"]) == 10
     assert frame["dual_loop"]["self_labeler"]["resolved_label"] == "LINK_FAILURE"
     assert frame["dual_loop"]["planner_and_fl"]["recommended_timeout_ms"] == 500
@@ -48,5 +54,6 @@ def test_observatory_websocket_accepts_bidirectional_commands() -> None:
             paused = next((frame for frame in (websocket.receive_json() for _ in range(4))
                            if frame.get("playing") is False), None)
     assert initial["seed"] == 42
+    assert initial["flower_runtime"]["mode"] in {"native", "fallback"}
     assert paused is not None and "dual_loop" in paused and "standard_raft" in paused
 

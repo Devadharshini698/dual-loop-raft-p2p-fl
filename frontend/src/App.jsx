@@ -1,8 +1,9 @@
-import { Activity, ChevronRight, Circle, Cpu, Radio, ShieldCheck } from 'lucide-react'
+import { Activity, ChevronRight, Circle, Cpu, Flower2, Radio, ShieldCheck } from 'lucide-react'
 import Arena from './Arena'
 import BrainMonitor, { PanelTitle } from './BrainMonitor'
 import ControlPanel from './ControlPanel'
 import EvidencePanel from './EvidencePanel'
+import FlowerRuntimeNotice from './FlowerRuntimeNotice'
 import Ledger from './Ledger'
 import Topology from './Topology'
 import VerificationPanel from './VerificationPanel'
@@ -18,9 +19,11 @@ const presets = [
 export default function App() {
   const { state, connected, chooseScenario, control, runAllChecks, verification } = useMissionControl()
   if (!state) return <Loading connected={connected}/>
+  const flower = state.flower_runtime
 
   return <main className="min-h-screen px-4 py-5 text-mist md:px-7 xl:px-10">
-    <Header state={state} connected={connected}/>
+    <FlowerRuntimeNotice flower={flower}/>
+    <Header state={state} connected={connected} flower={flower}/>
     <nav className="preset-bar" aria-label="Judge mode presets">
       <span className="section-label mr-2">JUDGE MODE</span>
       {presets.map(([id, number, label]) => <button key={id} className={state.scenario === id ? 'active' : ''}
@@ -53,7 +56,7 @@ export default function App() {
   </main>
 }
 
-function Header({ state, connected }) {
+function Header({ state, connected, flower }) {
   return <header className="mb-5 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
     <div className="flex items-start gap-4"><span className="brand-mark"><Cpu size={23}/></span><div>
       <p className="eyebrow">DUAL-LOOP P2P FEDERATED LEARNING</p>
@@ -64,6 +67,9 @@ function Header({ state, connected }) {
       <div><Activity size={15}/><span><b>SEED 42 · DETERMINISTIC</b><small>{state.scenario_name}</small></span></div>
       <div><ShieldCheck size={15}/><span><b>135 MS STRICTLY HELD</b><small>Safety floor</small></span></div>
       <div><Cpu size={15}/><span><b>{state.model_footprint_bytes} B</b><small>Model footprint</small></span></div>
+      <div className={flower?.fallback ? 'flower-fallback' : flower?.available ? 'connected' : 'disconnected'}><Flower2 size={15}/><span>
+        <b>{flower?.fallback ? 'FLOWER FALLBACK ACTIVE' : flower?.available ? `FLOWER SDK ACTIVE · v${flower.version}` : 'FLOWER STATUS UNKNOWN'}</b>
+        <small>{flower?.fallback ? 'Compatibility shim' : flower?.available ? 'In-process FedAvg' : 'Awaiting runtime report'}</small></span></div>
       <div className={connected ? 'connected' : 'disconnected'}><Radio size={15}/><span><b>{connected ? '10/10 CHECKS PASS' : 'RECONNECTING'}</b><small>Live WebSocket stream</small></span></div>
     </div>
   </header>

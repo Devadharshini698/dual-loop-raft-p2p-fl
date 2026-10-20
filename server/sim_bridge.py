@@ -12,7 +12,7 @@ import numpy as np
 from run_live_demo import build_demo
 from src.core.clock_network import SimNetwork, VirtualClock
 from src.core.types import FaultEvent, FaultType, Message, MessageType
-from src.fl.p2p_fl_task import P2PFLTask, make_non_iid_shards
+from src.fl.p2p_fl_task import P2PFLTask, flower_runtime_status, make_non_iid_shards
 from src.fl.planner_gate import ProvisionalLeaderGate, SafeRaftPlanner
 from src.ml.fast_loop import FastLoopNodeEngine, OnlineDriftDetector, SplitFailureClassifier
 from src.ml.features import TelemetryExtractor
@@ -455,6 +455,7 @@ class MissionControlSimulation:
                 "tick": self.tick_index, "virtual_ms": int(self.clock.now_ms),
                 "virtual_time_ms": int(self.clock.now_ms),
                 "playing": self.playing, "speed": self.speed, "seed": self.seed,
+                "flower_runtime": flower_runtime_status(),
                 "term": self.term, "leader": self.leader, "encoder_version": self.encoder_version,
                 "nodes": self._nodes(), "links": self._links(),
                 "standard_nodes": self._standard_nodes(), "standard_links": self._links(),

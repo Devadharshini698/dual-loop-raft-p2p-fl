@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from run_live_demo import build_demo
 from server.sim_bridge import ObservatoryBridge, SCENARIOS
+from src.fl.p2p_fl_task import flower_runtime_status
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -75,7 +76,8 @@ app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "seed": 42, "test_count": 31}
+    return {"status": "ok", "seed": 42, "test_count": 31,
+            "flower_runtime": flower_runtime_status()}
 
 
 @app.get("/api/rq-results")
@@ -86,7 +88,8 @@ def rq_results() -> dict:
 @app.post("/api/run-live-checks")
 def run_live_checks() -> dict:
     report = build_demo(42)
-    return {"seed": 42, "passed": True, "checks": bridge._judge_checks(), "evidence": report}
+    return {"seed": 42, "passed": True, "checks": bridge._judge_checks(),
+            "evidence": report, "flower_runtime": flower_runtime_status()}
 
 
 @app.get("/api/state")

@@ -47,6 +47,39 @@ python run_live_demo.py --pause 0 --no-color
 For a judge session, first run `pytest -q`, then run the live demonstration,
 and finish with `python run_evaluation.py` to show the complete RQ tables.
 
+## Launch the Option B Judge Observatory
+
+The repository includes a polished FastAPI + WebSocket + React/Tailwind/Cytoscape
+dashboard. It streams the real deterministic simulation bridge rather than a
+static UI mock. The core research modules remain dependency-light; web packages
+are isolated in optional adapter files.
+
+```bash
+python -m pip install -r requirements-showcase.txt
+cd frontend
+npm install
+npm run build
+cd ..
+python run_observatory.py
+```
+
+Open `http://127.0.0.1:8501`. The launcher normally opens it automatically.
+Use `--no-browser` when running headlessly.
+
+Judge Mode provides synchronized Standard Raft and Dual-Loop topologies, four
+fault presets, step-by-step playback, the ten telemetry features, the frozen
+Horizon-H evidence queue, drift and convergence plots, safety-bound timeout
+decisions, FL handover state, all ten fail-closed checks, and the seeded RQ1–RQ5
+benchmark explorer. The interface labels the evidence as deterministic and
+synthetic so timing results are not mistaken for physical-device measurements.
+
+The backend contracts are available at:
+
+- `GET /api/health`
+- `GET /api/rq-results`
+- `POST /api/run-live-checks`
+- `WS /ws/observatory`
+
 ## Project structure
 
 - `src/core`: virtual time, deterministic network faults, and Raft

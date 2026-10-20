@@ -22,7 +22,7 @@ RQ3,DualLoop_NoDriftWeighting,rare_crash_recall,0.0,ratio
 RQ3,DualLoop_NoDriftWeighting,cold_start_macro_f1,0.355035,ratio
 RQ3,FullDualLoop,rare_crash_recall,1.0,ratio
 RQ3,FullDualLoop,cold_start_macro_f1,0.982436,ratio
-RQ4,P2PFL,cpu_time_per_step,0.375737,ms
+RQ4,P2PFL,cpu_time_per_step,0.391287,ms
 RQ4,P2PFL,model_memory,168.0,bytes
 RQ4,P2PFL,message_overhead,7560.0,bytes
 RQ4,P2PFL,stalled_rounds,1.0,rounds

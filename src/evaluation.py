@@ -150,8 +150,7 @@ def evaluate_rq2(rows: list[dict], seed: int) -> None:
         correct = predictions == shift_y
         spurious = np.sum((shift_y == 2) & (predictions != 2))
         add(rows, "RQ2", name, "recovery_samples", recovery_step(correct), "samples")
-        add(rows, "RQ2", name, "spurious_elections_per_hour",
-            spurious / duration_hours, "events_per_hour")
+        add(rows, "RQ2", name, "spurious_elections_per_hour", spurious / duration_hours, "events_per_hour")
 
 
 def evaluate_rq3(rows: list[dict], seed: int) -> None:

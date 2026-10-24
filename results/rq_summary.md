@@ -8,24 +8,25 @@ Synthetic seeded benchmarks for implementation validation. Results are not deplo
 |---|---|---:|---|
 | DualLoop | macro_f1 | 1 | ratio |
 | OracleOfflineML | macro_f1 | 1 | ratio |
-| DualLoop | label_noise_rate | 0.048889 | ratio |
+| DualLoop | label_noise_rate | 0 | ratio |
+| DualLoop | resolution_coverage | 0.948889 | ratio |
 
 ## RQ2
 
 | Variant | Metric | Value | Unit |
 |---|---|---:|---|
 | FixedTimeout | recovery_samples | 118 | samples |
-| FixedTimeout | spurious_elections_per_hour | 9191.49 | events_per_hour |
+| FixedTimeout | spurious_elections_per_hour | 9303.64 | events_per_hour |
 | PhiAccrual | recovery_samples | 100 | samples |
-| PhiAccrual | spurious_elections_per_hour | 638.298 | events_per_hour |
+| PhiAccrual | spurious_elections_per_hour | 646.086 | events_per_hour |
 | SWIMLifeguard | recovery_samples | 0 | samples |
 | SWIMLifeguard | spurious_elections_per_hour | 0 | events_per_hour |
 | BanditTimeoutTuner | recovery_samples | 2 | samples |
-| BanditTimeoutTuner | spurious_elections_per_hour | 255.319 | events_per_hour |
+| BanditTimeoutTuner | spurious_elections_per_hour | 258.434 | events_per_hour |
 | OfflineStaticML | recovery_samples | 180 | samples |
-| OfflineStaticML | spurious_elections_per_hour | 16723.4 | events_per_hour |
-| DualLoop | recovery_samples | 23 | samples |
-| DualLoop | spurious_elections_per_hour | 1021.28 | events_per_hour |
+| OfflineStaticML | spurious_elections_per_hour | 11148.9 | events_per_hour |
+| DualLoop | recovery_samples | 117 | samples |
+| DualLoop | spurious_elections_per_hour | 510.638 | events_per_hour |
 
 ## RQ3
 
@@ -44,7 +45,7 @@ Synthetic seeded benchmarks for implementation validation. Results are not deplo
 
 | Variant | Metric | Value | Unit |
 |---|---|---:|---|
-| P2PFL | cpu_time_per_step | 0.391287 | ms |
+| P2PFL | cpu_time_per_step | 0.792475 | ms |
 | P2PFL | model_memory | 168 | bytes |
 | P2PFL | message_overhead | 7560 | bytes |
 | P2PFL | stalled_rounds | 1 | rounds |

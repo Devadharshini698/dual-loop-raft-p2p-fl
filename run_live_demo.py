@@ -125,8 +125,49 @@ def build_demo(seed: int = 42) -> dict:
             "full_dual_loop_f1": _metric(rows, "RQ3", "FullDualLoop", "cold_start_macro_f1"),
             "gated_spurious_handovers": _metric(
                 rows, "RQ5", "DualLoop + GatedProvisionalLeader", "spurious_handovers"),
+            "fixed_spurious_elections_per_hour": _metric(
+                rows, "RQ2", "FixedTimeout", "spurious_elections_per_hour"),
+            "dual_spurious_elections_per_hour": _metric(
+                rows, "RQ2", "DualLoop", "spurious_elections_per_hour"),
+            "fixed_stall_ms": _metric(
+                rows, "RQ5", "FixedTimeout + ProvisionalLeader", "stall_duration"),
+            "dual_stall_ms": _metric(
+                rows, "RQ5", "DualLoop + GatedProvisionalLeader", "stall_duration"),
+            "fixed_spurious_handovers": _metric(
+                rows, "RQ5", "FixedTimeout + ProvisionalLeader", "spurious_handovers"),
         },
     }
+
+
+def evaluate_checks(report: dict) -> list[dict[str, str]]:
+    """Return the ten judge checks with status derived from current evidence."""
+    labels, fast = report["self_labelling"], report["fast_loop"]
+    planner, workload, bench = report["safe_planner"], report["p2p_fl"], report["benchmarks"]
+    checks = [
+        ("Telemetry", labels["feature_count"] == 10,
+         f"{labels['feature_count']} normalized features per peer"),
+        ("Link evidence", labels["link_failure"]["label"] == "LINK_FAILURE",
+         f"{labels['link_failure']['label']} · confidence {labels['link_failure']['confidence']:.2f}"),
+        ("Crash evidence", labels["crash"]["label"] == "CRASH",
+         f"{labels['crash']['label']} · confidence {labels['crash']['confidence']:.2f}"),
+        ("Isolation guard", labels["local_isolation"]["excluded_from_training"],
+         "UNRESOLVED excluded from training"),
+        ("Fast local loop", fast["ready"] and fast["drift_detected"] and fast["post_shift_accuracy"] > .85,
+         f"Drift {str(fast['drift_detected']).lower()} · accuracy {fast['post_shift_accuracy']:.1%}"),
+        ("Link decision", not planner["link"]["provisional_leader"],
+         f"{planner['link']['timeout_ms']:.0f} ms · provisional OFF"),
+        ("Crash decision", planner["crash"]["provisional_leader"],
+         f"{planner['crash']['timeout_ms']:.0f} ms · provisional ON"),
+        ("Election handover", workload["handover_applied"],
+         f"{workload['buffered_client_updates']} updates transferred"),
+        ("P2P FL", workload["final_accuracy"] >= .8,
+         f"{workload['final_accuracy']:.1%} · target {workload['time_to_target_ms']:.0f} virtual ms"),
+        ("RQ validation", bench["label_noise_rate"] < .1,
+         f"Noise {bench['label_noise_rate']:.2%} · recovery {bench['drift_recovery_samples']:.0f}"),
+    ]
+    return [{"name": name, "observed": observed,
+             "status": "PASS" if passed else "FAIL"}
+            for name, passed, observed in checks]
 
 
 def _line(ok: bool, title: str, detail: str, color: bool) -> str:
@@ -137,27 +178,13 @@ def _line(ok: bool, title: str, detail: str, color: bool) -> str:
 
 
 def present(report: dict, pause: float = 0.15, color: bool = True) -> bool:
-    labels, fast = report["self_labelling"], report["fast_loop"]
-    planner, workload, bench = report["safe_planner"], report["p2p_fl"], report["benchmarks"]
-    lines = [
-        (labels["feature_count"] == 10, "Telemetry", f"{labels['feature_count']} normalized features per peer"),
-        (labels["link_failure"]["label"] == "LINK_FAILURE", "Link evidence", f"{labels['link_failure']['label']}  confidence={labels['link_failure']['confidence']:.2f}"),
-        (labels["crash"]["label"] == "CRASH", "Crash evidence", f"{labels['crash']['label']}  confidence={labels['crash']['confidence']:.2f}"),
-        (labels["local_isolation"]["excluded_from_training"], "Isolation guard", "UNRESOLVED sample excluded from training"),
-        (fast["ready"] and fast["drift_detected"] and fast["post_shift_accuracy"] > .85,
-         "Fast local loop", f"ready={fast['ready']}  drift={fast['drift_detected']}  accuracy={fast['post_shift_accuracy']:.1%}"),
-        (not planner["link"]["provisional_leader"], "Link decision", f"timeout={planner['link']['timeout_ms']:.0f} ms  provisional=False"),
-        (planner["crash"]["provisional_leader"], "Crash decision", f"timeout={planner['crash']['timeout_ms']:.0f} ms  provisional=True"),
-        (workload["handover_applied"], "Election handover", f"{workload['buffered_client_updates']} updates transferred to elected leader"),
-        (workload["final_accuracy"] >= .8, "P2P FL", f"accuracy={workload['final_accuracy']:.1%}  target_time={workload['time_to_target_ms']:.0f} ms"),
-        (bench["label_noise_rate"] < .1, "RQ validation", f"noise={bench['label_noise_rate']:.2%}  recovery={bench['drift_recovery_samples']:.0f} samples"),
-    ]
+    checks = evaluate_checks(report)
     print("\nDual Loop Raft P2P FL Live Demonstration\n")
-    for ok, title, detail in lines:
-        print(_line(ok, title, detail, color))
+    for check in checks:
+        print(_line(check["status"] == "PASS", check["name"], check["observed"], color))
         if pause:
             time.sleep(pause)
-    passed = all(ok for ok, _, _ in lines)
+    passed = all(check["status"] == "PASS" for check in checks)
     print("\nAll demonstration checks completed successfully." if passed
           else "\nOne or more demonstration checks failed.")
     return passed

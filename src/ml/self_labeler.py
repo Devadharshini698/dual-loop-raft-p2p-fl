@@ -63,7 +63,7 @@ class ProtocolSelfLabeler:
     """Freeze suspicions and resolve them from later protocol evidence."""
 
     def __init__(self, horizon_ms: float = 2_000.0) -> None:
-        if horizon_ms <= 0:
+        if not np.isfinite(horizon_ms) or horizon_ms <= 0:
             raise ValueError("horizon must be positive")
         self.horizon_ms = float(horizon_ms)
         self.pending_suspicions: dict[str, PendingSuspicion] = {}
@@ -77,10 +77,15 @@ class ProtocolSelfLabeler:
         if peer_id in self.pending_suspicions:
             raise ValueError(f"suspicion already pending for {peer_id}")
         vector = np.asarray(features, dtype=np.float64)
-        if vector.shape != (10,):
-            raise ValueError("features must have shape (10,)")
+        settings = (timestamp_ms, heartbeat_interval_ms)
+        if (not peer_id or vector.shape != (10,) or not np.all(np.isfinite(vector))
+                or not all(np.isfinite(settings)) or heartbeat_interval_ms <= 0
+                or known_boot_id < 0 or known_log_index < -1 or expected_witnesses < 1):
+            raise ValueError("invalid suspicion snapshot")
+        vector = vector.copy()
+        vector.setflags(write=False)
         self.pending_suspicions[peer_id] = PendingSuspicion(
-            float(timestamp_ms), peer_id, vector.copy(), known_boot_id,
+            float(timestamp_ms), peer_id, vector, known_boot_id,
             known_log_index, float(heartbeat_interval_ms), expected_witnesses)
 
     def observe_direct(self, timestamp_ms: float, peer_id: str, boot_id: int,
@@ -90,6 +95,14 @@ class ProtocolSelfLabeler:
         pending = self.pending_suspicions.get(peer_id)
         if pending is None or timestamp_ms > pending.started_ms + self.horizon_ms:
             return None
+        values = (timestamp_ms, local_health_lag_ms, jitter_ms)
+        if (not all(np.isfinite(values)) or timestamp_ms < pending.started_ms
+                or local_health_lag_ms < 0 or jitter_ms < 0 or boot_id < 0
+                or log_index < -1):
+            raise ValueError("invalid direct protocol evidence")
+        if heartbeat_delay_ms is not None and (not np.isfinite(heartbeat_delay_ms)
+                                               or heartbeat_delay_ms < 0):
+            raise ValueError("heartbeat delay must be non-negative")
         if boot_id > pending.known_boot_id:
             return self._finish(pending, timestamp_ms, FailureLabel.CRASH, 1.0)
         if boot_id != pending.known_boot_id or log_index < pending.known_log_index:
@@ -109,6 +122,10 @@ class ProtocolSelfLabeler:
         pending = self.pending_suspicions.get(peer_id)
         if pending is None or timestamp_ms > pending.started_ms + self.horizon_ms:
             return None
+        if (not witness_id or not np.isfinite(timestamp_ms)
+                or timestamp_ms < pending.started_ms or (target_alive and not reachable)
+                or (target_alive and boot_id is None) or (boot_id is not None and boot_id < 0)):
+            raise ValueError("invalid witness protocol evidence")
         pending.witnesses[witness_id] = WitnessEvidence(
             reachable, target_alive, boot_id, float(timestamp_ms))
         matching = [item for item in pending.witnesses.values()
@@ -122,6 +139,8 @@ class ProtocolSelfLabeler:
         return self._finish(pending, timestamp_ms, FailureLabel.LINK_FAILURE, confidence)
 
     def expire(self, timestamp_ms: float) -> list[ResolvedLabel]:
+        if not np.isfinite(timestamp_ms):
+            raise ValueError("expiration timestamp must be finite")
         expired = [item for item in self.pending_suspicions.values()
                    if timestamp_ms >= item.started_ms + self.horizon_ms]
         results = []
@@ -147,8 +166,10 @@ class ProtocolSelfLabeler:
 
     def _finish(self, pending: PendingSuspicion, resolved_ms: float,
                 label: FailureLabel, confidence: float) -> ResolvedLabel:
+        features = pending.features.copy()
+        features.setflags(write=False)
         result = ResolvedLabel(pending.started_ms, float(resolved_ms), pending.peer_id,
-                               pending.features.copy(), label, confidence)
+                               features, label, confidence)
         self.pending_suspicions.pop(pending.peer_id, None)
         self.resolved.append(result)
         if label is not FailureLabel.UNRESOLVED:

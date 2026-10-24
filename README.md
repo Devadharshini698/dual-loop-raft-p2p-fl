@@ -102,6 +102,29 @@ The backend contracts are available at:
 
 The RQ tables are deterministic synthetic benchmarks for validating the implementation and experimental pipeline. They are not measurements from a physical deployment and should not be presented as such. Before publication, rerun the same metrics on the intended emulation and edge-device testbeds with repeated seeds, confidence intervals, and significance tests.
 
+## Physical laboratory adapter
+
+The optional `physical_testbed/` package adds a monotonic scheduler, real UDP
+Raft transport, atomic boot/term/vote/log persistence, append-only JSONL evidence,
+recoverable `tc netem` fault control, and deployable Flower `ClientApp`/`ServerApp`
+components. Real heartbeat and witness evidence feeds the telemetry extractor,
+self-labeller, and local fast loop. Flower aggregation is gated by a
+majority-agreed Raft term and leader.
+
+Run the single-host real-socket preflight with:
+
+```bash
+python run_physical_demo.py
+flwr build --app flowerapp
+```
+
+On Windows PowerShell, enable UTF-8 if the Flower CLI cannot print its success
+emoji: `$env:PYTHONUTF8='1'; flwr build --app flowerapp`.
+
+This preflight is not presented as a multi-machine result. Follow
+[`PHYSICAL_TESTBED.md`](PHYSICAL_TESTBED.md) to deploy five independent peers in
+the college laboratory, inject controlled faults, and validate the evidence.
+
 ## License
 
 MIT License. See `LICENSE`.

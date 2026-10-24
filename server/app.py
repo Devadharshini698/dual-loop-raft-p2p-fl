@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import csv
 import json
@@ -15,7 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from run_live_demo import build_demo
+from run_live_demo import build_demo, evaluate_checks
 from server.sim_bridge import ObservatoryBridge, SCENARIOS
 from src.fl.p2p_fl_task import flower_runtime_status
 
@@ -29,6 +30,41 @@ clients: set[WebSocket] = set()
 class PlaybackRequest(BaseModel):
     action: str
     speed: float | None = None
+
+
+def _parametrized_cases(decorator: ast.expr) -> int:
+    if not isinstance(decorator, ast.Call):
+        return 1
+    name = getattr(decorator.func, "attr", "")
+    if name != "parametrize" or len(decorator.args) < 2:
+        return 1
+    try:
+        values = ast.literal_eval(decorator.args[1])
+    except (ValueError, TypeError):
+        return 1
+    return len(values) if isinstance(values, (list, tuple)) else 1
+
+
+def _test_inventory() -> int:
+    """Count collected-style test cases without importing the test modules."""
+    count = 0
+    for path in (ROOT / "tests").rglob("test_*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
+                cases = 1
+                for decorator in node.decorator_list:
+                    cases *= _parametrized_cases(decorator)
+                count += cases
+    return count
+
+
+def _dashboard_file(path: str) -> Path:
+    root = DIST.resolve()
+    candidate = (root / path).resolve()
+    if candidate.is_relative_to(root) and candidate.is_file():
+        return candidate
+    return root / "index.html"
 
 
 def _rq_payload() -> dict[str, Any]:
@@ -76,7 +112,8 @@ app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "seed": 42, "test_count": 31,
+    return {"status": "ok", "seed": 42, "test_count": _test_inventory(),
+            "test_count_kind": "discoverable repository cases",
             "flower_runtime": flower_runtime_status()}
 
 
@@ -88,7 +125,10 @@ def rq_results() -> dict:
 @app.post("/api/run-live-checks")
 def run_live_checks() -> dict:
     report = build_demo(42)
-    return {"seed": 42, "passed": True, "checks": bridge._judge_checks(),
+    checks = evaluate_checks(report)
+    return {"seed": 42,
+            "passed": all(check["status"] == "PASS" for check in checks),
+            "checks": checks,
             "evidence": report, "flower_runtime": flower_runtime_status()}
 
 
@@ -114,7 +154,12 @@ async def choose_scenario(scenario: str) -> dict:
 
 @app.post("/api/control")
 async def playback(request: PlaybackRequest) -> dict:
-    result = bridge.set_playback(request.action, request.speed)
+    if request.action == "reset":
+        result = bridge.reset(bridge.scenario)
+    elif request.action in {"play", "pause", "step"}:
+        result = bridge.set_playback(request.action, request.speed)
+    else:
+        raise HTTPException(status_code=400, detail=f"unknown action: {request.action}")
     await broadcast(result)
     return result
 
@@ -175,6 +220,5 @@ if DIST.exists():
 
     @app.get("/{path:path}")
     def dashboard(path: str = "") -> FileResponse:
-        candidate = DIST / path
-        return FileResponse(candidate if candidate.is_file() else DIST / "index.html")
+        return FileResponse(_dashboard_file(path))
 

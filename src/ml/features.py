@@ -25,7 +25,9 @@ class TelemetryExtractor:
 
     def __init__(self, window_size: int = 20, heartbeat_interval_ms: float = 100.0,
                  log_lag_scale: float = 20.0) -> None:
-        if window_size < 2 or heartbeat_interval_ms <= 0 or log_lag_scale <= 0:
+        scales = (heartbeat_interval_ms, log_lag_scale)
+        if (window_size < 2 or not all(np.isfinite(scales))
+                or heartbeat_interval_ms <= 0 or log_lag_scale <= 0):
             raise ValueError("invalid telemetry normalization settings")
         self.window_size = window_size
         self.heartbeat_interval_ms = float(heartbeat_interval_ms)
@@ -33,14 +35,23 @@ class TelemetryExtractor:
         self._events: dict[str, deque[_Event]] = defaultdict(
             lambda: deque(maxlen=self.window_size))
         self._last_received: dict[str, float] = {}
+        self._last_observed: dict[str, float] = {}
         self._missed_runs: dict[str, int] = defaultdict(int)
 
     def observe(self, peer_id: str, timestamp_ms: float, *, received: bool = True,
                 rtt_ms: float = 0.0, term_delta: int = 0, log_lag_delta: int = 0,
                 witnesses_alive: int = 0, witnesses_queried: int = 0,
                 local_health_lag_ms: float = 0.0) -> np.ndarray:
-        if min(rtt_ms, local_health_lag_ms) < 0:
+        numeric = (timestamp_ms, rtt_ms, local_health_lag_ms)
+        if not peer_id or not all(np.isfinite(numeric)) or min(rtt_ms, local_health_lag_ms) < 0:
             raise ValueError("latencies must be non-negative")
+        if (witnesses_alive < 0 or witnesses_queried < 0
+                or witnesses_alive > witnesses_queried):
+            raise ValueError("witness counts must satisfy 0 <= alive <= queried")
+        last_observed = self._last_observed.get(peer_id)
+        if last_observed is not None and timestamp_ms < last_observed:
+            raise ValueError("peer timestamps must be monotonic")
+        self._last_observed[peer_id] = float(timestamp_ms)
         previous = self._last_received.get(peer_id)
         interval = timestamp_ms - previous if received and previous is not None else None
         if received:
@@ -83,4 +94,5 @@ class TelemetryExtractor:
     def reset_peer(self, peer_id: str) -> None:
         self._events.pop(peer_id, None)
         self._last_received.pop(peer_id, None)
+        self._last_observed.pop(peer_id, None)
         self._missed_runs.pop(peer_id, None)

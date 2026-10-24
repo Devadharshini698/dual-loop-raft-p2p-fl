@@ -1,0 +1,25 @@
+[project]
+name = "dual-loop-raft-flower"
+version = "1.0.0"
+description = "Physical Flower adapter for Raft-coordinated dual-loop federated learning"
+license = { file = "LICENSE" }
+dependencies = ["flwr>=1.40.0,<1.41.0", "numpy>=1.26,<3"]
+
+[tool.flwr.app]
+publisher = "Devadharshini S"
+fab-format-version = 1
+flwr-version-target = "1.40.0"
+
+[tool.flwr.app.components]
+serverapp = "dual_loop_flower.server_app:app"
+clientapp = "dual_loop_flower.client_app:app"
+
+[tool.flwr.app.config]
+num-rounds = 10
+num-partitions = 5
+samples-per-peer = 90
+feature-count = 6
+seed = 42
+learning-rate = 0.2
+local-epochs = 2
+min-agreeing-peers = 3

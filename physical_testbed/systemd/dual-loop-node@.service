@@ -1,0 +1,19 @@
+[Unit]
+Description=Dual-Loop physical Raft peer %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dual-loop
+Group=dual-loop
+WorkingDirectory=/opt/dual-loop
+EnvironmentFile=/etc/dual-loop/runtime.env
+ExecStart=/opt/dual-loop/.venv/bin/python -m physical_testbed.node --config /etc/dual-loop/lab.json --node-id %i --run-id ${RUN_ID}
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

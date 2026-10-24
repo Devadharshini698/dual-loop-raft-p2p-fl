@@ -14,10 +14,16 @@ export default function FlowerRuntimeNotice({ flower }) {
     if (!open) return undefined
     const previous = document.activeElement
     acknowledgeRef.current?.focus()
-    const closeOnEscape = (event) => event.key === 'Escape' && setOpen(false)
-    document.addEventListener('keydown', closeOnEscape)
+    const handleKey = (event) => {
+      if (event.key === 'Escape') setOpen(false)
+      if (event.key === 'Tab') {
+        event.preventDefault()
+        acknowledgeRef.current?.focus()
+      }
+    }
+    document.addEventListener('keydown', handleKey)
     return () => {
-      document.removeEventListener('keydown', closeOnEscape)
+      document.removeEventListener('keydown', handleKey)
       previous?.focus?.()
     }
   }, [open])
@@ -31,7 +37,7 @@ export default function FlowerRuntimeNotice({ flower }) {
       <p className="section-label">RUNTIME DISCLOSURE</p>
       <h2 id="flower-runtime-title">Flower fallback is active</h2>
       <p id="flower-runtime-copy">{flower.message}</p>
-      <p className="runtime-detail">Install the showcase requirements and restart the Observatory to activate the real Flower SDK path.</p>
+      <p className="runtime-detail">This is Flower-ready integration with a zero-dependency fallback. Install the showcase requirements and restart the Observatory to activate the real Flower SDK path.</p>
       <button ref={acknowledgeRef} onClick={() => setOpen(false)}>Acknowledge and continue</button>
     </section>
   </div>

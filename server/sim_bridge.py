@@ -9,7 +9,7 @@ from typing import Any
 
 import numpy as np
 
-from run_live_demo import build_demo
+from run_live_demo import build_demo, evaluate_checks
 from src.core.clock_network import SimNetwork, VirtualClock
 from src.core.types import FaultEvent, FaultType, Message, MessageType
 from src.fl.p2p_fl_task import P2PFLTask, flower_runtime_status, make_non_iid_shards
@@ -377,7 +377,7 @@ class MissionControlSimulation:
     def _planner_contract(self) -> dict[str, Any]:
         decision = self.last_decision
         return {"recommended_timeout_ms": int(round(decision.timeout_ms)),
-                "safety_floor_ms": 135, "provisional_leader_enabled":
+                "safety_floor_ms": self.demo["safe_planner"]["safety_floor_ms"], "provisional_leader_enabled":
                 bool(decision.activate_provisional_leader),
                 "buffered_updates_count": len(self.gate.state.buffered_updates),
                 "handed_over_updates": self.handover_updates,
@@ -386,19 +386,7 @@ class MissionControlSimulation:
                 "stall_duration_ms": self.dual_stall}
 
     def _judge_checks(self) -> list[dict[str, str]]:
-        labels = self.demo["self_labelling"]
-        return [
-            {"name": "10-feature telemetry", "observed": f"{labels['feature_count']} normalized features", "status": "PASS"},
-            {"name": "Link evidence", "observed": "LINK_FAILURE · confidence 0.91", "status": "PASS"},
-            {"name": "Crash evidence", "observed": "CRASH · confidence 1.00", "status": "PASS"},
-            {"name": "Isolation guard", "observed": "UNRESOLVED excluded", "status": "PASS"},
-            {"name": "Fast local loop", "observed": "Drift true · accuracy 100%", "status": "PASS"},
-            {"name": "Link decision", "observed": "500 ms · provisional OFF", "status": "PASS"},
-            {"name": "Crash decision", "observed": "135 ms · provisional ON", "status": "PASS"},
-            {"name": "Election handover", "observed": "5 updates transferred", "status": "PASS"},
-            {"name": "P2P FL", "observed": "100% · target 1000 virtual ms", "status": "PASS"},
-            {"name": "RQ validation", "observed": "Noise 4.89% · recovery 23", "status": "PASS"},
-        ]
+        return evaluate_checks(self.demo)
 
     def _probabilities(self) -> dict[str, float]:
         if self.scenario == "ambiguous" and self.tick_index >= 8:
@@ -433,11 +421,12 @@ class MissionControlSimulation:
         }
 
     def _standard_contract(self) -> dict[str, Any]:
+        bench = self.demo["benchmarks"]
         spurious = 20 if self.scenario == "ambiguous" and self.tick_index >= 11 else self.standard_elections
         return {"nodes": self._protocol_nodes(self._standard_nodes()),
                 "links": self._protocol_links(self._links()),
                 "spurious_elections": self.standard_elections,
-                "spurious_elections_per_hour": 9191.49,
+                "spurious_elections_per_hour": bench["fixed_spurious_elections_per_hour"],
                 "spurious_handovers": spurious,
                 "stall_duration_ms": self.standard_stall,
                 "timeout_range_ms": [150, 300],
@@ -450,6 +439,8 @@ class MissionControlSimulation:
                        "tone": event.tone, "title": event.title, "detail": event.detail}
                       for event in self.ledger]
             dual, standard = self._dual_contract(), self._standard_contract()
+            standard_rate = bench["fixed_spurious_elections_per_hour"]
+            dual_rate = bench["dual_spurious_elections_per_hour"]
             return {
                 "scenario": self.scenario, "scenario_name": SCENARIOS[self.scenario],
                 "tick": self.tick_index, "virtual_ms": int(self.clock.now_ms),
@@ -467,9 +458,9 @@ class MissionControlSimulation:
                 "ledger": ledger, "ledger_events": ledger,
                 "dual_loop": dual, "standard_raft": standard,
                 "arena": {
-                    "standard": {"spurious_handovers": 20 if self.standard_elections >= 20 else self.standard_elections,
-                                 "spurious_per_hour": 9191, "stall_ms": self.standard_stall},
-                    "dual": {"spurious_handovers": 0, "spurious_per_hour": 1021,
+                    "standard": {"spurious_handovers": bench["fixed_spurious_handovers"] if self.standard_elections >= 20 else self.standard_elections,
+                                 "spurious_per_hour": round(standard_rate), "stall_ms": self.standard_stall},
+                    "dual": {"spurious_handovers": bench["gated_spurious_handovers"], "spurious_per_hour": round(dual_rate),
                              "stall_ms": self.dual_stall},
                 },
                 "handover_updates": self.handover_updates,
@@ -478,8 +469,8 @@ class MissionControlSimulation:
                             "recovery_samples": bench["drift_recovery_samples"],
                             "cold_start_f1": bench["full_dual_loop_f1"],
                             "safety_floor_ms": self.demo["safe_planner"]["safety_floor_ms"],
-                            "standard_spurious_per_hour": 9191.49,
-                            "dual_spurious_per_hour": 1021.28},
+                            "standard_spurious_per_hour": standard_rate,
+                            "dual_spurious_per_hour": dual_rate},
             }
 
 

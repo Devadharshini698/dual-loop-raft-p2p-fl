@@ -8,6 +8,7 @@ from typing import Any, Protocol
 import numpy as np
 
 from .clock_network import SimNetwork, VirtualClock
+from .raft_validation import parse_entries, parse_int, parse_timestamp, valid_message
 from .types import LogEntry, Message, MessageType
 
 
@@ -28,6 +29,10 @@ class RaftNode:
                  network: SimNetwork, rng: np.random.Generator | None = None,
                  timeout_planner: TimeoutPlanner | None = None,
                  heartbeat_interval_ms: float = 100.0) -> None:
+        if not node_id or node_id in peers or len(set(peers)) != len(peers):
+            raise ValueError("node membership must contain unique peers and exclude self")
+        if heartbeat_interval_ms <= 0:
+            raise ValueError("heartbeat_interval_ms must be positive")
         self.node_id, self.peers = node_id, tuple(peers)
         self.clock, self.network = clock, network
         self.rng = rng if rng is not None else np.random.default_rng(0)
@@ -55,6 +60,8 @@ class RaftNode:
         self._reset_election_timer()
 
     def receive(self, message: Message) -> None:
+        if not valid_message(message, self.node_id, self.peers):
+            return
         if message.term > self.current_term:
             self._become_follower(message.term)
         self.peer_heard_map[message.sender_id] = self.clock.now_ms
@@ -119,6 +126,9 @@ class RaftNode:
         self.current_term += 1
         self.voted_for, self._votes = self.node_id, {self.node_id}
         self._reset_election_timer()
+        if len(self._votes) >= self.majority:
+            self._become_leader()
+            return
         for peer in self.peers:
             self.network.send(self._message(peer, MessageType.VOTE_REQ))
 
@@ -183,7 +193,10 @@ class RaftNode:
     def _on_heartbeat_ack(self, message: Message) -> None:
         if self.role is not Role.LEADER or message.term != self.current_term:
             return
-        match_index = int(message.payload.get("match_index", -1))
+        parsed = parse_int(message.payload, "match_index", -1, -1)
+        if parsed is None:
+            return
+        match_index = min(parsed, len(self.log) - 1)
         for index in range(self.commit_index + 1, match_index + 1):
             self._acks.setdefault(index, {self.node_id}).add(message.sender_id)
             if len(self._acks[index]) >= self.majority and self.log[index].term == self.current_term:
@@ -198,15 +211,18 @@ class RaftNode:
         self._on_heartbeat(message)
 
     def _merge_leader_log(self, message: Message) -> None:
-        entries = [LogEntry(int(term), value) for term, value in message.payload.get("entries", [])]
+        entries = parse_entries(message.payload)
+        leader_commit = parse_int(message.payload, "leader_commit", -1, -1)
+        if entries is None or leader_commit is None:
+            return
         common = 0
         while common < min(len(self.log), len(entries)) and self.log[common] == entries[common]:
             common += 1
         if common < len(self.log) and common <= self.commit_index:
             return
         self.log[common:] = entries[common:]
-        leader_commit = int(message.payload.get("leader_commit", -1))
-        self.commit_index = min(leader_commit, len(self.log) - 1)
+        committed = min(leader_commit, len(self.log) - 1)
+        self.commit_index = max(self.commit_index, committed)
 
     def _on_witness_request(self, message: Message) -> None:
         target = str(message.payload.get("target"))
@@ -217,8 +233,10 @@ class RaftNode:
 
     def _on_witness_response(self, message: Message) -> None:
         target = str(message.payload.get("target"))
-        self.witness_maps.setdefault(message.sender_id, {})[target] = float(
-            message.payload.get("last_heard", float("-inf")))
+        last_heard = parse_timestamp(message.payload, "last_heard")
+        if last_heard is None:
+            return
+        self.witness_maps.setdefault(message.sender_id, {})[target] = last_heard
 
     def _log_payload(self) -> dict[str, Any]:
         return {"entries": [(entry.term, entry.value) for entry in self.log],

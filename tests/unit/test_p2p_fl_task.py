@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
 import numpy as np
 
 from src.fl.p2p_fl_task import (
@@ -44,3 +47,21 @@ def test_real_flower_client_conversion_when_available() -> None:
 
     client = PeerFlowerClient(np.zeros((4, 2)), np.zeros(4, dtype=int))
     assert isinstance(client.to_client(), Client)
+
+
+def test_zero_dependency_fallback_imports_without_flower() -> None:
+    script = """
+import builtins
+real_import = builtins.__import__
+def blocked(name, *args, **kwargs):
+    if name == 'flwr' or name.startswith('flwr.'):
+        raise ModuleNotFoundError("No module named 'flwr'", name='flwr')
+    return real_import(name, *args, **kwargs)
+builtins.__import__ = blocked
+from src.fl import p2p_fl_task as task
+assert not task.FLOWER_AVAILABLE
+assert task.flower_runtime_status()['fallback']
+client = task.PeerFlowerClient([[0.0, 1.0]], [0])
+assert len(client.get_parameters({})) == 2
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)

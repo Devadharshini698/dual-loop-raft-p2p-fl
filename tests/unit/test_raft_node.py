@@ -2,7 +2,7 @@ import numpy as np
 
 from src.core.clock_network import SimNetwork, VirtualClock
 from src.core.raft_node import RaftNode, Role
-from src.core.types import FaultEvent, FaultType
+from src.core.types import FaultEvent, FaultType, LogEntry, Message, MessageType
 
 
 def cluster(size=5, seed=42):
@@ -68,3 +68,58 @@ def test_majority_commit_replicates_lightweight_entry():
     committed = [node.log[index] for node in nodes.values() if node.commit_index >= index]
     assert len(committed) >= 3
     assert all(entry == committed[0] for entry in committed)
+
+
+def test_single_node_cluster_elects_itself():
+    clock = VirtualClock()
+    network = SimNetwork(clock)
+    node = RaftNode("solo", [], clock, network, np.random.default_rng(1))
+    node.start()
+    clock.advance_to(301)
+    assert node.role is Role.LEADER
+    assert node.leader_id == "solo"
+
+
+def test_untrusted_and_misdirected_messages_are_ignored():
+    clock = VirtualClock()
+    network = SimNetwork(clock)
+    node = RaftNode("n1", ["n2"], clock, network)
+    unknown = Message("attacker", "n1", 99, MessageType.HEARTBEAT)
+    misdirected = Message("n2", "elsewhere", 99, MessageType.HEARTBEAT)
+    node.receive(unknown)
+    node.receive(misdirected)
+    assert node.current_term == 0
+    assert node.peer_heard_map == {}
+
+
+def test_malformed_replication_and_oversized_ack_fail_closed():
+    clock = VirtualClock()
+    network = SimNetwork(clock)
+    node = RaftNode("n1", ["n2", "n3"], clock, network)
+    node.current_term, node.role = 2, Role.LEADER
+    node.log = [LogEntry(2, "safe")]
+    bad_log = Message("n2", "n1", 2, MessageType.HEARTBEAT,
+                      payload={"entries": [["bad"]], "leader_commit": 0})
+    node.receive(bad_log)
+    assert node.log == [LogEntry(2, "safe")]
+    node.role = Role.LEADER
+    oversized = Message("n2", "n1", 2, MessageType.HEARTBEAT_ACK,
+                        payload={"match_index": 1_000_000})
+    node.receive(oversized)
+    assert node.commit_index == 0
+
+
+def test_follower_commit_index_never_regresses():
+    clock = VirtualClock()
+    network = SimNetwork(clock)
+    node = RaftNode("n1", ["n2", "n3"], clock, network)
+    node.current_term = 2
+    node.log = [LogEntry(1, "committed"), LogEntry(2, "pending")]
+    node.commit_index = 0
+    stale_commit = Message(
+        "n2", "n1", 2, MessageType.HEARTBEAT,
+        payload={"entries": [(1, "committed"), (2, "pending")],
+                 "leader_commit": -1},
+    )
+    node.receive(stale_commit)
+    assert node.commit_index == 0

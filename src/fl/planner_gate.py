@@ -27,6 +27,12 @@ class SafeRaftPlanner:
                  base_timeout_min: float = 150.0,
                  base_timeout_max: float = 300.0,
                  max_timeout: float = 2_000.0) -> None:
+        values = (heartbeat_interval_ms, mean_rtt_ms, std_rtt_ms,
+                  base_timeout_min, base_timeout_max, max_timeout)
+        if (not all(np.isfinite(values)) or heartbeat_interval_ms <= 0
+                or mean_rtt_ms < 0 or std_rtt_ms < 0 or base_timeout_min <= 0
+                or base_timeout_min > base_timeout_max or max_timeout <= 0):
+            raise ValueError("invalid Raft planner timing settings")
         self.heartbeat_interval_ms = float(heartbeat_interval_ms)
         self.mean_rtt_ms = float(mean_rtt_ms)
         self.std_rtt_ms = float(std_rtt_ms)
@@ -45,8 +51,16 @@ class SafeRaftPlanner:
              witness_alive: bool | None = None,
              base_timeout: float | None = None) -> TimeoutDecision:
         probabilities = np.asarray(probs, dtype=float)
-        if probabilities.shape != (3,) or not np.isclose(probabilities.sum(), 1.0):
+        if (probabilities.shape != (3,) or not np.all(np.isfinite(probabilities))
+                or np.any(probabilities < 0)
+                or not np.isclose(probabilities.sum(), 1.0)):
             raise ValueError("probs must be a normalized shape-(3,) vector")
+        if (not np.isfinite(entropy) or not 0 <= entropy <= 1
+                or current_term < 0):
+            raise ValueError("entropy and current term are invalid")
+        if base_timeout is not None and (not np.isfinite(base_timeout)
+                                         or base_timeout <= 0):
+            raise ValueError("base timeout must be positive")
         fallback = not is_ready or not classifier_enabled or entropy > 0.75
         if fallback:
             decision = self._fallback(current_term)
@@ -105,6 +119,10 @@ class ProvisionalAggregatorState:
         self.active, self.term = False, None
         return updates
 
+    def discard(self) -> None:
+        self.buffered_updates.clear()
+        self.active, self.term = False, None
+
 
 class ProvisionalLeaderGate:
     """Apply planner decisions to provisional aggregation state."""
@@ -126,5 +144,6 @@ class ProvisionalLeaderGate:
             self.state.activate(current_term)
             self.activations += 1
         elif decision.mode == "likely_link":
+            self.state.discard()
             self.suppressed_handovers += 1
         return decision

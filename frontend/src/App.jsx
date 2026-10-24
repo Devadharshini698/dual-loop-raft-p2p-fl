@@ -17,13 +17,14 @@ const presets = [
 ]
 
 export default function App() {
-  const { state, connected, chooseScenario, control, runAllChecks, verification } = useMissionControl()
+  const { state, connected, chooseScenario, control, runAllChecks, verification, error } = useMissionControl()
   if (!state) return <Loading connected={connected}/>
   const flower = state.flower_runtime
 
   return <main className="min-h-screen px-4 py-5 text-mist md:px-7 xl:px-10">
     <FlowerRuntimeNotice flower={flower}/>
     <Header state={state} connected={connected} flower={flower}/>
+    {error && <div className="connection-error" role="alert">Observatory command failed: {error}</div>}
     <nav className="preset-bar" aria-label="Judge mode presets">
       <span className="section-label mr-2">JUDGE MODE</span>
       {presets.map(([id, number, label]) => <button key={id} className={state.scenario === id ? 'active' : ''}
@@ -57,6 +58,9 @@ export default function App() {
 }
 
 function Header({ state, connected, flower }) {
+  const checks = state.judge_checks || []
+  const passed = checks.filter((check) => check.status === 'PASS').length
+  const allPassed = checks.length > 0 && passed === checks.length
   return <header className="mb-5 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
     <div className="flex items-start gap-4"><span className="brand-mark"><Cpu size={23}/></span><div>
       <p className="eyebrow">DUAL-LOOP P2P FEDERATED LEARNING</p>
@@ -70,7 +74,9 @@ function Header({ state, connected, flower }) {
       <div className={flower?.fallback ? 'flower-fallback' : flower?.available ? 'connected' : 'disconnected'}><Flower2 size={15}/><span>
         <b>{flower?.fallback ? 'FLOWER FALLBACK ACTIVE' : flower?.available ? `FLOWER SDK ACTIVE · v${flower.version}` : 'FLOWER STATUS UNKNOWN'}</b>
         <small>{flower?.fallback ? 'Compatibility shim' : flower?.available ? 'In-process FedAvg' : 'Awaiting runtime report'}</small></span></div>
-      <div className={connected ? 'connected' : 'disconnected'}><Radio size={15}/><span><b>{connected ? '10/10 CHECKS PASS' : 'RECONNECTING'}</b><small>Live WebSocket stream</small></span></div>
+      <div className={connected && allPassed ? 'connected' : 'disconnected'}><Radio size={15}/><span>
+        <b>{connected ? `${passed}/${checks.length} DEMO CHECKS ${allPassed ? 'PASS' : 'REPORTED'}` : 'RECONNECTING'}</b>
+        <small>{connected ? 'Live WebSocket · separate from repository test suite' : 'Waiting for live WebSocket stream'}</small></span></div>
     </div>
   </header>
 }

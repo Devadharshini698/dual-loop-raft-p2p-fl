@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BarChart3, Check, FlaskConical } from 'lucide-react'
+import { BarChart3, Check, FlaskConical, X } from 'lucide-react'
 import { PanelTitle } from './BrainMonitor'
 
-const apiRoot = import.meta.env.DEV ? 'http://127.0.0.1:8501' : ''
+const apiRoot = ''
 
 export default function VerificationPanel({ state, verification }) {
   const [tab, setTab] = useState('checks')
@@ -20,17 +20,22 @@ export default function VerificationPanel({ state, verification }) {
 }
 
 function CheckTable({ checks }) {
-  return <div className="check-grid">{checks.map((check, index) => <div className="check-row" key={check.name}>
+  return <div className="check-grid">{checks.map((check, index) => {
+    const passed = check.status === 'PASS'
+    return <div className={`check-row ${passed ? '' : 'failed'}`} key={check.name}>
     <span className="check-number">{String(index + 1).padStart(2, '0')}</span>
     <div><strong>{check.name}</strong><small>{check.observed}</small></div>
-    <b><Check size={12}/>PASS</b>
-  </div>)}</div>
+    <b className={passed ? '' : 'fail'}>{passed ? <Check size={12}/> : <X size={12}/>} {check.status}</b>
+  </div>})}</div>
 }
 
 function ResearchExplorer({ results }) {
   const highlights = useMemo(() => {
     if (!results) return []
-    const find = (rq, variant, metric) => results.metrics.find((row) => row.rq === rq && row.variant === variant && row.metric === metric)?.value
+    const find = (rq, variant, metric) => {
+      const value = results.metrics.find((row) => row.rq === rq && row.variant === variant && row.metric === metric)?.value
+      return Number.isFinite(value) ? value : 0
+    }
     return [
       ['RQ1', 'Protocol label noise', find('RQ1', 'DualLoop', 'label_noise_rate') * 100, 10, '%', 'Below the 10% ceiling'],
       ['RQ2', 'Drift recovery', find('RQ2', 'DualLoop', 'recovery_samples'), 60, ' samples', 'Online recovery after Regime B'],

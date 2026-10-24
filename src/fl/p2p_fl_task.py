@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from importlib.metadata import version as package_version
+from importlib.metadata import PackageNotFoundError, version as package_version
 from typing import Any
 
 import numpy as np
@@ -16,7 +16,10 @@ try:
     from flwr.server.strategy.aggregate import aggregate as flower_aggregate
 
     FLOWER_AVAILABLE = True
-    FLOWER_VERSION = package_version("flwr")
+    try:
+        FLOWER_VERSION = package_version("flwr")
+    except PackageNotFoundError:
+        FLOWER_VERSION = "unknown"
 except ModuleNotFoundError as error:
     if error.name != "flwr":
         raise
@@ -63,6 +66,12 @@ class PeerFlowerClient(NumPyClientBase):
                  classes: int = 3) -> None:
         self.x_train = np.asarray(x_train, dtype=float)
         self.y_train = np.asarray(y_train, dtype=int)
+        if (self.x_train.ndim != 2 or not len(self.x_train)
+                or self.y_train.shape != (len(self.x_train),) or classes < 2):
+            raise ValueError("expected non-empty aligned training arrays")
+        if (not np.all(np.isfinite(self.x_train)) or np.any(self.y_train < 0)
+                or np.any(self.y_train >= classes)):
+            raise ValueError("training data contains invalid values or labels")
         self.W = np.zeros((self.x_train.shape[1], classes))
         self.b = np.zeros(classes)
 
@@ -70,13 +79,20 @@ class PeerFlowerClient(NumPyClientBase):
         return [self.W.copy(), self.b.copy()]
 
     def set_parameters(self, parameters: list[np.ndarray]) -> None:
-        self.W = np.asarray(parameters[0], dtype=float).copy()
-        self.b = np.asarray(parameters[1], dtype=float).copy()
+        if len(parameters) != 2:
+            raise ValueError("expected weight and bias parameters")
+        weight, bias = (np.asarray(item, dtype=float) for item in parameters)
+        if (weight.shape != self.W.shape or bias.shape != self.b.shape
+                or not np.all(np.isfinite(weight)) or not np.all(np.isfinite(bias))):
+            raise ValueError("parameter shapes or values are invalid")
+        self.W, self.b = weight.copy(), bias.copy()
 
     def fit(self, parameters: list[np.ndarray], config: dict[str, Any]) -> tuple:
         self.set_parameters(parameters)
         learning_rate = float(config.get("learning_rate", 0.15))
         epochs = int(config.get("local_epochs", 2))
+        if not np.isfinite(learning_rate) or learning_rate <= 0 or epochs <= 0:
+            raise ValueError("learning rate and local epochs must be positive")
         classes = self.b.size
         targets = np.eye(classes)[self.y_train]
         for _ in range(epochs):
@@ -102,14 +118,28 @@ class RaftFedAvgStrategy(FedAvgBase):
 
     @staticmethod
     def aggregate_parameters(updates: list[tuple[list[np.ndarray], int]]) -> list[np.ndarray]:
-        if not updates:
-            raise ValueError("at least one client update is required")
+        RaftFedAvgStrategy._validate_updates(updates)
         if flower_aggregate is not None:
             return [np.asarray(item).copy() for item in flower_aggregate(updates)]
         counts = np.asarray([count for _, count in updates], dtype=float)
         total = counts.sum()
         return [sum(parameters[index] * count for parameters, count in updates) / total
                 for index in range(len(updates[0][0]))]
+
+    @staticmethod
+    def _validate_updates(updates: list[tuple[list[np.ndarray], int]]) -> None:
+        if not updates:
+            raise ValueError("at least one client update is required")
+        reference = [np.asarray(item) for item in updates[0][0]]
+        if not reference:
+            raise ValueError("client updates must contain parameters")
+        for parameters, count in updates:
+            arrays = [np.asarray(item) for item in parameters]
+            if count <= 0 or len(arrays) != len(reference):
+                raise ValueError("sample counts and parameter lists must be valid")
+            for value, expected in zip(arrays, reference, strict=True):
+                if value.shape != expected.shape or not np.all(np.isfinite(value)):
+                    raise ValueError("client parameters must be finite and shape-aligned")
 
 
 @dataclass(slots=True)
@@ -128,8 +158,13 @@ class P2PFLTask:
     def __init__(self, clients: dict[str, PeerFlowerClient], test_data: tuple,
                  round_duration_ms: float = 1_000.0,
                  target_accuracy: float = 0.8) -> None:
+        if not clients or round_duration_ms <= 0 or not 0 <= target_accuracy <= 1:
+            raise ValueError("invalid FL task settings")
         self.clients = clients
-        self.x_test, self.y_test = test_data
+        self.x_test = np.asarray(test_data[0], dtype=float)
+        self.y_test = np.asarray(test_data[1], dtype=int)
+        if self.x_test.ndim != 2 or self.y_test.shape != (len(self.x_test),):
+            raise ValueError("test arrays must be aligned")
         sample = next(iter(clients.values()))
         self.parameters = sample.get_parameters()
         self.strategy = RaftFedAvgStrategy()
@@ -141,17 +176,18 @@ class P2PFLTask:
     def run_round(self, leader_available: bool = True,
                   provisional: ProvisionalAggregatorState | None = None,
                   term: int = 0) -> bool:
-        updates = []
+        updates, buffered_any = [], False
         for client_id, client in self.clients.items():
             parameters, count, _ = client.fit(
                 self.parameters, {"learning_rate": 0.2, "local_epochs": 2})
             self.metrics.message_bytes += sum(item.nbytes for item in parameters)
             updates.append((parameters, count))
             if not leader_available and provisional is not None and provisional.active:
-                provisional.buffer_update(client_id, (parameters, count), term)
+                buffered_any |= provisional.buffer_update(
+                    client_id, (parameters, count), term)
         self.virtual_time_ms += self.round_duration_ms
         if not leader_available:
-            if provisional is None or not provisional.active:
+            if not buffered_any:
                 self.metrics.stalled_rounds += 1
             return False
         self._apply_updates(updates)

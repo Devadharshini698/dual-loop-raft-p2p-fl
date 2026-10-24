@@ -41,9 +41,14 @@
     "time_to_target_ms": 1000.0
   },
   "benchmarks": {
-    "label_noise_rate": 0.048889,
-    "drift_recovery_samples": 23.0,
+    "label_noise_rate": 0.0,
+    "drift_recovery_samples": 117.0,
     "full_dual_loop_f1": 0.982436,
-    "gated_spurious_handovers": 0.0
+    "gated_spurious_handovers": 0.0,
+    "fixed_spurious_elections_per_hour": 9303.641465,
+    "dual_spurious_elections_per_hour": 510.638298,
+    "fixed_stall_ms": 225.0,
+    "dual_stall_ms": 135.0,
+    "fixed_spurious_handovers": 20.0
   }
 }

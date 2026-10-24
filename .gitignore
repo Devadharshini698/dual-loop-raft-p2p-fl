@@ -5,3 +5,8 @@ outputs/
 work/
 frontend/node_modules/
 .venv/
+*.fab
+state/
+results/runs/
+results/physical_smoke.json
+results/observatory.*.log

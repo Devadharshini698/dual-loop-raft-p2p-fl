@@ -15,6 +15,7 @@ from src.baselines.detectors import (
 )
 from src.fl.p2p_fl_task import P2PFLTask, make_non_iid_shards
 from src.fl.planner_gate import ProvisionalLeaderGate, SafeRaftPlanner
+from src.evaluation_protocol import derive_protocol_dataset
 from src.ml.fast_loop import FastLoopNodeEngine, SplitFailureClassifier
 
 
@@ -65,9 +66,11 @@ def macro_f1(truth: np.ndarray, predicted: np.ndarray) -> float:
 
 def recovery_step(correct: np.ndarray, window: int = 20,
                   target: float = 0.85) -> int:
-    for end in range(window, len(correct) + 1):
-        if float(np.mean(correct[end - window:end])) >= target:
-            return end
+    windows = [float(np.mean(correct[end - window:end]))
+               for end in range(window, len(correct) + 1)]
+    for index, score in enumerate(windows):
+        if score >= target and all(value >= target for value in windows[index:]):
+            return index + window
     return len(correct)
 
 
@@ -80,23 +83,20 @@ def add(rows: list[dict], rq: str, variant: str, metric: str,
 def evaluate_rq1(rows: list[dict], seed: int) -> None:
     train_x, truth = failure_data(450, "A", seed)
     test_x, test_y = failure_data(240, "A", seed + 1)
-    rng = np.random.default_rng(seed + 2)
-    noisy = truth.copy()
-    flipped = rng.choice(len(noisy), int(0.05 * len(noisy)), replace=False)
-    noisy[flipped] = (noisy[flipped] + rng.integers(1, 3, len(flipped))) % 3
-    confidence = np.full(len(noisy), 0.95)
-    confidence[flipped] = 0.3
-    dual = fit_model(train_x, noisy, seed, 7, confidence)
+    derived_x, derived_y, confidence, noise, coverage = derive_protocol_dataset(
+        train_x, truth, seed + 2)
+    dual = fit_model(derived_x, derived_y, seed, 7, confidence)
     oracle = fit_model(train_x, truth, seed, 7)
     add(rows, "RQ1", "DualLoop", "macro_f1",
         macro_f1(test_y, predict(dual, test_x)), "ratio")
     add(rows, "RQ1", "OracleOfflineML", "macro_f1",
         macro_f1(test_y, predict(oracle, test_x)), "ratio")
     add(rows, "RQ1", "DualLoop", "label_noise_rate",
-        np.mean(noisy != truth), "ratio")
+        noise, "ratio")
+    add(rows, "RQ1", "DualLoop", "resolution_coverage", coverage, "ratio")
 
 
-def _timing_baselines(seed: int) -> dict[str, tuple[int, int]]:
+def _timing_baselines(seed: int) -> tuple[dict[str, tuple[int, int]], float]:
     rng = np.random.default_rng(seed)
     detectors = {"FixedTimeout": FixedTimeoutDetector(seed),
                  "PhiAccrual": PhiAccrualDetector(),
@@ -108,39 +108,46 @@ def _timing_baselines(seed: int) -> dict[str, tuple[int, int]]:
         for detector in detectors.values():
             detector.observe_heartbeat(now)
     false_steps = {name: [] for name in detectors}
+    elapsed = 0.0
     for step, interval in enumerate(rng.normal(235, 30, 120), 1):
+        elapsed += interval
         context = np.array([1.0, interval / 250.0, 0.15])
         detectors["BanditTimeoutTuner"].select_timeout(context, 140.0)
+        bandit_failed = False
         for name, detector in detectors.items():
             kwargs = ({"witnesses_alive": 2, "witnesses_queried": 3}
                       if name == "SWIMLifeguard" else {})
             suspected = detector.should_suspect(now + interval, **kwargs)
+            if name == "BanditTimeoutTuner":
+                bandit_failed = suspected
             if suspected:
                 false_steps[name].append(step)
             detector.observe_heartbeat(now + interval, local_health_lag_ms=60)
-        detectors["BanditTimeoutTuner"].update(-1.0 if suspected else 1.0)
+        detectors["BanditTimeoutTuner"].update(-1.0 if bandit_failed else 1.0)
         now += interval
-    return {name: (len(steps), max(steps, default=0))
-            for name, steps in false_steps.items()}
+    results = {name: (len(steps), max(steps, default=0))
+               for name, steps in false_steps.items()}
+    return results, elapsed
 
 
 def evaluate_rq2(rows: list[dict], seed: int) -> None:
-    duration_hours = 120 * 235 / 3_600_000
-    for name, (false_count, recovery) in _timing_baselines(seed).items():
+    timing, elapsed_ms = _timing_baselines(seed)
+    duration_hours = elapsed_ms / 3_600_000
+    for name, (false_count, recovery) in timing.items():
         add(rows, "RQ2", name, "recovery_samples", recovery, "samples")
         add(rows, "RQ2", name, "spurious_elections_per_hour",
             false_count / duration_hours, "events_per_hour")
     train_x, train_y = failure_data(360, "A", seed + 10)
     shift_x, shift_y = failure_data(180, "B", seed + 11, (0.15, 0.10, 0.75))
-    link = np.array([.45, .30, .40, .30, .10, .10, .05, .10, .80, .50])
-    healthy = np.array([.60, .35, .65, .45, .80, .40, .05, .10, .90, .10])
-    shift_x[shift_y == 0] = link + shift_x[shift_y == 0] * 0.04
-    shift_x[shift_y == 2] = healthy + shift_x[shift_y == 2] * 0.04
+    new_link = np.array([.45, .30, .40, .30, .10, .10, .05, .10, .80, .50])
+    new_healthy = np.array([.60, .35, .65, .45, .80, .40, .05, .10, .90, .10])
+    shift_x[shift_y == 0] = new_link + shift_x[shift_y == 0] * 0.04
+    shift_x[shift_y == 2] = new_healthy + shift_x[shift_y == 2] * 0.04
     shift_x = np.clip(shift_x, 0.0, 1.0)
     offline = OfflineStaticMLDetector(seed)
     offline.fit(train_x, train_y, epochs=6)
     static_predictions = offline.predict(shift_x)
-    dual = FastLoopNodeEngine(fit_model(train_x, train_y, seed, 6), base_lr=0.06)
+    dual = FastLoopNodeEngine(fit_model(train_x, train_y, seed, 6), base_lr=0.10)
     dual_predictions = []
     for vector, label in zip(shift_x, shift_y, strict=True):
         dual_predictions.append(int(np.argmax(dual.classifier.predict_proba(vector))))
@@ -149,8 +156,9 @@ def evaluate_rq2(rows: list[dict], seed: int) -> None:
                               ("DualLoop", np.asarray(dual_predictions))):
         correct = predictions == shift_y
         spurious = np.sum((shift_y == 2) & (predictions != 2))
+        ml_hours = len(shift_y) * 235 / 3_600_000
         add(rows, "RQ2", name, "recovery_samples", recovery_step(correct), "samples")
-        add(rows, "RQ2", name, "spurious_elections_per_hour", spurious / duration_hours, "events_per_hour")
+        add(rows, "RQ2", name, "spurious_elections_per_hour", spurious / ml_hours, "events_per_hour")
 
 
 def evaluate_rq3(rows: list[dict], seed: int) -> None:

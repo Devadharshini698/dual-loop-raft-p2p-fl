@@ -15,6 +15,9 @@ class FixedTimeoutDetector:
 
     def __init__(self, seed: int = 42, timeout_min_ms: float = 150.0,
                  timeout_max_ms: float = 300.0) -> None:
+        if (not np.isfinite(timeout_min_ms) or not np.isfinite(timeout_max_ms)
+                or timeout_min_ms <= 0 or timeout_min_ms > timeout_max_ms):
+            raise ValueError("invalid timeout range")
         self.rng = np.random.default_rng(seed)
         self.timeout_min_ms = float(timeout_min_ms)
         self.timeout_max_ms = float(timeout_max_ms)
@@ -41,6 +44,9 @@ class PhiAccrualDetector:
 
     def __init__(self, threshold: float = 3.0, window_size: int = 100,
                  minimum_std_ms: float = 10.0) -> None:
+        if (not np.isfinite(threshold) or not np.isfinite(minimum_std_ms)
+                or threshold <= 0 or window_size < 2 or minimum_std_ms <= 0):
+            raise ValueError("invalid phi detector settings")
         self.threshold = float(threshold)
         self.minimum_std_ms = float(minimum_std_ms)
         self.intervals: deque[float] = deque(maxlen=window_size)
@@ -73,6 +79,9 @@ class SWIMLifeguardDetector:
 
     def __init__(self, base_timeout_ms: float = 200.0,
                  max_multiplier: float = 8.0) -> None:
+        if (not np.isfinite(base_timeout_ms) or not np.isfinite(max_multiplier)
+                or base_timeout_ms <= 0 or max_multiplier < 1):
+            raise ValueError("invalid Lifeguard settings")
         self.base_timeout_ms = float(base_timeout_ms)
         self.max_multiplier = float(max_multiplier)
         self.last_heartbeat_ms = 0.0
@@ -105,6 +114,9 @@ class BanditTimeoutTuner:
 
     def __init__(self, seed: int = 42, alpha: float = 0.5,
                  base_timeout_ms: float = 150.0) -> None:
+        if (not np.isfinite(alpha) or not np.isfinite(base_timeout_ms)
+                or alpha < 0 or base_timeout_ms <= 0):
+            raise ValueError("invalid bandit settings")
         self.rng = np.random.default_rng(seed)
         self.alpha = float(alpha)
         self.base_timeout_ms = float(base_timeout_ms)
@@ -118,8 +130,9 @@ class BanditTimeoutTuner:
 
     def select_timeout(self, context: np.ndarray, safety_floor_ms: float) -> float:
         vector = np.asarray(context, dtype=float)
-        if vector.shape != (3,):
-            raise ValueError("context must have shape (3,)")
+        if (vector.shape != (3,) or not np.all(np.isfinite(vector))
+                or not np.isfinite(safety_floor_ms) or safety_floor_ms <= 0):
+            raise ValueError("context and safety floor must be valid")
         scores = []
         for action in range(3):
             inverse = np.linalg.inv(self.A[action])
@@ -133,6 +146,8 @@ class BanditTimeoutTuner:
         return self.current_timeout_ms
 
     def update(self, reward: float) -> None:
+        if not np.isfinite(reward):
+            raise ValueError("reward must be finite")
         action, vector = self.last_action, self.last_context
         self.A[action] += np.outer(vector, vector)
         self.b[action] += float(reward) * vector
@@ -158,7 +173,10 @@ class OfflineStaticMLDetector:
     def fit(self, features: np.ndarray, labels: np.ndarray,
             epochs: int = 8, learning_rate: float = 0.05) -> None:
         x_values, y_values = np.asarray(features), np.asarray(labels, dtype=int)
-        if x_values.ndim != 2 or x_values.shape[1] != 10 or len(x_values) != len(y_values):
+        if (x_values.ndim != 2 or x_values.shape[1] != 10 or not len(x_values)
+                or len(x_values) != len(y_values) or not np.all(np.isfinite(x_values))
+                or np.any(y_values < 0) or np.any(y_values > 2)
+                or epochs <= 0 or not np.isfinite(learning_rate) or learning_rate <= 0):
             raise ValueError("expected aligned feature matrix (n, 10) and labels")
         for _ in range(epochs):
             for vector, label in zip(x_values, y_values, strict=True):

@@ -43,7 +43,10 @@ class SlowFederatedAggregator:
 
     @staticmethod
     def aggregation_weight(report: EncoderReport) -> float:
-        if report.sample_count <= 0 or not 0 <= report.mean_confidence <= 1:
+        quality = (report.mean_confidence, report.drift_score)
+        if (report.sample_count <= 0 or not all(np.isfinite(quality))
+                or not 0 < report.mean_confidence <= 1
+                or not 0 <= report.drift_score <= 1):
             raise ValueError("invalid report quality fields")
         drift_factor = max(0.05, 1.0 - 0.8 * report.drift_score)
         return report.sample_count * report.mean_confidence * drift_factor
@@ -77,6 +80,8 @@ class SlowFederatedAggregator:
         if target_regime is None or len(reports) < 6:
             return reports
         target = np.asarray(target_regime, dtype=float)
+        if not target.size or not np.all(np.isfinite(target)):
+            raise ValueError("target regime must be a finite non-empty vector")
         matches = [report for report in reports
                    if np.asarray(report.regime_signature).shape == target.shape
                    and np.linalg.norm(np.asarray(report.regime_signature) - target)
@@ -85,12 +90,18 @@ class SlowFederatedAggregator:
 
     @staticmethod
     def _validate_reports(reports: list[EncoderReport]) -> None:
+        if not reports or len({report.node_id for report in reports}) != len(reports):
+            raise ValueError("encoder reports require unique node identifiers")
         keys = set(reports[0].encoder_weights)
         shapes = {name: np.asarray(value).shape
                   for name, value in reports[0].encoder_weights.items()}
         if keys != {"W1", "b1", "W2", "b2"}:
             raise ValueError("reports must contain shared encoder parameters only")
         for report in reports:
+            SlowFederatedAggregator.aggregation_weight(report)
+            signature = np.asarray(report.regime_signature, dtype=float)
+            if not signature.size or not np.all(np.isfinite(signature)):
+                raise ValueError("regime signatures must be finite and non-empty")
             if set(report.encoder_weights) != keys:
                 raise ValueError("encoder parameter keys differ")
             for name, value in report.encoder_weights.items():
@@ -110,12 +121,17 @@ class SlowFederatedAggregator:
         stop = len(stacked) - trim if trim else len(stacked)
         kept_values, kept_weights = sorted_values[trim:stop], sorted_weights[trim:stop]
         denominator = kept_weights.sum(axis=0)
+        if np.any(denominator <= 0) or not np.all(np.isfinite(denominator)):
+            raise ValueError("retained aggregation weight must be positive")
         result = (kept_values * kept_weights).sum(axis=0) / denominator
         return result.reshape(stacked.shape[1:])
 
     def _commit_version(self, weights: dict[str, np.ndarray], leader: RaftNode) -> None:
         checksum = self._checksum(weights)
-        self._version_counter += 1
+        existing = sum(isinstance(entry.value, dict)
+                       and entry.value.get("type") == "encoder_version"
+                       for entry in leader.log)
+        self._version_counter = max(self._version_counter, existing) + 1
         version_id = f"encoder-{self._version_counter:06d}-{checksum[:12]}"
         serial = {name: value.tolist() for name, value in weights.items()}
         payload = {"type": "encoder_version", "version_id": version_id,

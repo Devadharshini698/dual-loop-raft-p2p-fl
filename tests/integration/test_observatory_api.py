@@ -9,7 +9,7 @@ pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient
 
-from server.app import app
+from server.app import DIST, _dashboard_file, _test_inventory, app
 from server.sim_bridge import ObservatoryBridge
 
 
@@ -18,8 +18,10 @@ def test_observatory_health_endpoint_contract() -> None:
         response = client.get("/api/health")
     assert response.status_code == 200
     payload = response.json()
-    assert {key: payload[key] for key in ("status", "seed", "test_count")} == {
-        "status": "ok", "seed": 42, "test_count": 31}
+    assert {key: payload[key] for key in ("status", "seed")} == {
+        "status": "ok", "seed": 42}
+    assert payload["test_count"] == _test_inventory() >= 45
+    assert payload["test_count_kind"] == "discoverable repository cases"
     runtime = payload["flower_runtime"]
     assert runtime["mode"] in {"native", "fallback"}
     assert runtime["fallback"] is (runtime["mode"] == "fallback")
@@ -32,6 +34,7 @@ def test_observatory_rq_and_live_check_bridges() -> None:
     assert {row["rq"] for row in rq["metrics"]} == {"RQ1", "RQ2", "RQ3", "RQ4", "RQ5"}
     assert live["passed"] and len(live["checks"]) == 10
     assert all(check["status"] == "PASS" for check in live["checks"])
+    assert live["checks"] == ObservatoryBridge(seed=42)._judge_checks()
 
 
 def test_observatory_frame_contains_real_protocol_state() -> None:
@@ -56,4 +59,18 @@ def test_observatory_websocket_accepts_bidirectional_commands() -> None:
     assert initial["seed"] == 42
     assert initial["flower_runtime"]["mode"] in {"native", "fallback"}
     assert paused is not None and "dual_loop" in paused and "standard_raft" in paused
+
+
+def test_observatory_control_rejects_unknown_actions_and_reset_works() -> None:
+    with TestClient(app) as client:
+        client.post("/api/control", json={"action": "step"})
+        reset = client.post("/api/control", json={"action": "reset"})
+        invalid = client.post("/api/control", json={"action": "not-a-command"})
+    assert reset.status_code == 200 and reset.json()["tick"] == 0
+    assert invalid.status_code == 400
+
+
+def test_dashboard_file_resolution_stays_inside_built_assets() -> None:
+    assert _dashboard_file("../../README.md") == DIST.resolve() / "index.html"
+    assert _dashboard_file("index.html") == DIST.resolve() / "index.html"
 
